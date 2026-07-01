@@ -1,132 +1,141 @@
 <!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"><title>VJ GoL → QR → Woman</title>
+<head><meta charset="utf-8"><title>VJ GoL</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
 <style>
-*{margin:0;padding:0;background:#0a0a0f;overflow:hidden}
-canvas{display:block;width:100vw;height:100vh}
-#info{position:fixed;bottom:10px;left:10px;color:#333;font:11px monospace;pointer-events:none}
+*{margin:0;padding:0;background:#0a0a0f;overflow:hidden;user-select:none;-webkit-user-select:none}
+canvas{display:block;width:100vw;height:100dvh;touch-action:none}
+#info{position:fixed;bottom:48px;left:0;right:0;text-align:center;color:#444;font:9px monospace;pointer-events:none;z-index:1}
+#ui{position:fixed;bottom:0;left:0;right:0;display:flex;gap:0;padding:4px env(safe-area-inset-bottom,4px);background:linear-gradient(transparent,#0a0a0f 60%);z-index:2;flex-wrap:wrap;justify-content:center}
+#ui button{flex:0 0 auto;background:rgba(255,255,255,.04);border:1px solid #2a2a2a;color:#888;border-radius:6px;font:9px sans-serif;padding:6px 8px;margin:2px;cursor:pointer;min-width:36px;transition:.1s}
+#ui button:active{background:rgba(255,215,0,.15);border-color:#ffd700;color:#ffd700}
+#ui .lab{color:#555;font:8px sans-serif;padding:6px 2px;line-height:20px}
 </style>
 </head>
 <body>
-<div id="info">←→spd  ↑tick  Space:rule  C:pal  S:sym  P:pause  Q:QR  W:Woman  R:reset</div>
+<div id="info">tap↑:morph  ←→:speed  ⇧:step  Sp:rule  C:pal  S:sym</div>
+<div id="ui">
+  <span class="lab">MORPH</span>
+  <button onpointerdown="morph('QR')">QR</button>
+  <button onpointerdown="morph('WOMAN')">♀</button>
+  <button onpointerdown="morph('FISH')">🐟</button>
+  <button onpointerdown="morph('SKULL')">💀</button>
+  <span class="lab">|</span>
+  <button onpointerdown="keyH('ArrowLeft')">◀</button><span class="lab" id="spdL">6</span><button onpointerdown="keyH('ArrowRight')">▶</button>
+  <span class="lab">|</span>
+  <button onpointerdown="keyH(' ')" id="ruleL">C</button>
+  <button onpointerdown="keyH('c')">🎨</button>
+  <button onpointerdown="keyH('s')">↔</button>
+  <button onpointerdown="keyH('p')">⏸</button>
+  <button onpointerdown="keyH('r')">↺</button>
+</div>
 <script>
 const COLS=80,ROWS=60, RULES=[[[2,3],[3,3]],[[1,3],[3,4]],[[2,2],[3,3]],[[1,2],[3,3]],[[2,4],[3,3]],[[1,3],[1,3]]]
+const RULEN=['Conway','HighLife','2x2','Seeds','Maze','Coral']
 const PAL=[[255,215,0],[0,255,200],[255,80,120],[200,120,255],[0,200,255],[100,255,100],[255,200,50],[50,200,255]]
-let G=[],rule=0,speed=6,gen=0,pal=0,sym=0,pause=0,RUN=1,morphing=0,morphPhase=0,morphTarget=0
-let TARGET=[],TARGET_NAME=''
+let G=[],rule=0,speed=6,gen=0,pal=0,sym=0,pause=0,RUN=1,morphing=0,morphPhase=0
+let TARGET=[],TARGET_NAME='',touching=0
 
-// ── QR code for "VJ-GOL" (21×21) ──
-const QR=[
-1,1,1,1,1,1,1,0,1,1,1,0,1,1,1,1,1,1,1,1,1, 1,0,0,0,0,0,1,0,1,0,1,0,1,0,0,0,0,0,1,0,1,
+// ── Compact silhouettes (base64 → 60×80 grid) ──
+const S_SKULL=atob('AAACAAAAf/AAAf/8AAf//wAP//+AH///ADD/CAAgf/gAYH/4EOB/+BgADgf/gY8P/8OAD/4//wD/8H/4B/+A//AP/AH/gD////4D////+PxJJ/gD////4f///8D///+Af///gH///wA///4Af//8AAf/8AAB/8AAAAgAAA=')
+const S_WOMAN=atob('AAAD/gAB/+AABf/AAB//ADwAf/4A8Af//gPgP//w/A////A+////H4////8P////f/////f/////8P////wf////8P////4AAAP+AAAD/gAAA/4AAAP/AAAD/gAAAcAAAAHAAAABwAAAAcAAAQHAEAGAADABgAAwAcAAcAHAAHAHAA8AHAA8AHwAfAAA=')
+const S_FISH=atob('AP//AAD///AD////AB4/////AB8/////4H7/////+B///f+f/gB///f+f8AAf///8/8AB/3n/0AB/+B/+fAH/4H/58Af/wf/z4B//B//fgD/8H/98AAD/8AAAP/wAAA//AAAD/8AAAAP/wAAAAAAAAAA=')
+
+function silhouette(name){
+  let b64={WOMAN:S_WOMAN,FISH:S_FISH,SKULL:S_SKULL,QR:''}[name]
+  if(name=='QR')return qrGrid()
+  let raw=atob(b64),g=[]
+  for(let i=0;i<ROWS;i++){
+    g[i]=[]
+    for(let j=0;j<COLS;j++){
+      let byteI=~~(j/8),bit=7-(j%8)
+      g[i][j]=(raw.charCodeAt(i*10+byteI)>>bit)&1
+    }
+  }
+  return g
+}
+
+// ── Silhouettes ──
+const QR=[1,1,1,1,1,1,1,0,1,1,1,0,1,1,1,1,1,1,1,1,1, 1,0,0,0,0,0,1,0,1,0,1,0,1,0,0,0,0,0,1,0,1,
 1,0,1,1,1,0,1,0,0,0,1,0,1,0,1,1,1,0,1,0,1, 1,0,1,1,1,0,1,0,1,1,1,0,1,0,1,1,1,0,1,0,0,
 1,0,1,1,1,0,1,0,1,0,1,0,1,0,1,1,1,0,1,0,1, 1,0,0,0,0,0,1,0,1,0,0,0,1,0,0,0,0,0,1,0,1,
-1,1,1,1,1,1,1,0,1,0,1,0,1,0,1,1,1,1,1,0,1, 0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,0,
-0,1,0,0,0,0,1,1,1,0,1,1,1,0,0,0,0,0,0,1,1, 0,0,1,1,1,0,0,1,0,0,1,0,1,1,0,0,1,0,1,1,1,
+1,1,1,1,1,1,1,0,1,0,1,0,1,0,1,1,1,1,1,0,1, 0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,0,]
+Array.prototype.push.apply(QR,[0,1,0,0,0,0,1,1,1,0,1,1,1,0,0,0,0,0,0,1,1, 0,0,1,1,1,0,0,1,0,0,1,0,1,1,0,0,1,0,1,1,1,
 0,0,0,0,1,1,0,0,1,0,0,1,0,1,1,1,0,1,0,1,1, 0,0,1,0,0,0,1,1,1,0,1,0,1,1,0,1,0,0,1,0,0,
 1,0,0,1,0,1,0,0,1,0,0,1,1,0,1,1,0,1,0,1,1, 0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,1,1,
 1,1,1,1,1,1,1,0,1,0,0,1,0,0,1,1,1,1,1,0,0, 1,0,0,0,0,0,1,0,1,0,1,1,1,1,0,0,0,0,0,0,0,
 1,0,1,1,1,0,1,0,1,1,1,0,1,0,1,0,1,0,1,0,0, 1,0,1,1,1,0,1,0,1,1,0,0,1,0,1,1,0,0,1,0,1,
 1,0,1,1,1,0,1,0,1,1,1,0,0,1,0,1,1,0,1,1,1, 1,0,0,0,0,0,1,0,1,0,0,0,1,0,1,1,0,0,1,0,1,
-1,1,1,1,1,1,1,0,1,0,1,0,1,1,1,1,1,0,1,1,1]
+1,1,1,1,1,1,1,0,1,0,1,0,1,1,1,1,1,0,1,1,1])
 
-// ── Woman silhouette (80x60) ── side profile with flowing hair ──
-const WOMAN=`
-................................................................................
-................................................................................
-.......................................@@@@@@@@@..................................
-...................................@@@@@........@@@@@@............................
-................................@@@.................@@@@@@.......................
-..............................@@........................@@@@.....................
-.............................@..............................@@@@..................
-............................@..................................@@.................
-...................@@@@@@@@@@@@..................................@...............
-...............@@@@............@@@..............................@...............
-.............@@@...................@@@..........................@...............
-............@.........................@@@.......................@...............
-..........@@.............................@@...................@@................
-........@@.................................@@................@.................
-.......@......@@@@@..........................@@@............@.................
-......@......@@@@@@@............................@@...........@.................
-.....@......@@@@@@@@............................@@..........@.................
-....@.......@@@@@@@@@..............@@@..........@@..........@.................
-....@........@@@@@@@@@.............@@@...........@@.........@.................
-...@.........@@@@@@@@..............@@@...........@@.........@.................
-...@..........@@@@@@@................................@........@.................
-..@...........@@@@@..................................@.......@.................
-..@.......................@@@..........................@......@.................
-..@......................@@@@..........................@.....@..................
-..@.....................@@@@@..........................@....@...................
-..@.....................@@@@@..........................@@..@....................
-..@.....................@@@@@.......@@@@@@@@@@@@@@......@.@.....................
-..@......................@........@@@........@@@@@.....@@@......................
-..@..............................@@@..........@@@.....@@.......................
-..@.............................@@@..........@@@.....@.........................
-..@............................@@@..........@@@....@@..........................
-...@...........................@@@.........@@@....@...........................
-...@............................@.........@@@...@@............................
-....@............................@@@@@@@@@@@..@@..............................
-....@.............................@@@@@@@@@@@@................................
-.....@.......................................@...............................
-......@.....................................@...............................
-.......@...................................@................................
-........@.................................@................................
-.........@...............................@................................
-..........@@............................@.................................
-............@@.......................@@..................................
-..............@@@................@@@....................................
-.................@@@@@@@@@@@@@@@.......................................
-................................................................................`.trim()
+const SIL={QR,WOMAN:'',FISH:'',SKULL:''}
+SIL.WOMAN=`\n.........@@@@@@@@@..................................\n......@@@@@........@@@@@@............................\n...@@@.................@@@@@@.......................\n.@@........................@@@@.....................\\n@..............................@@@@................\n@..................................@@...............\n@@@@@@@@@@@@@@@@@@@...................@.............\n@@@@....@@@@@@@@@@@@@@@@@.............@.............\n@@@.......@@@@@@@@@@@@@@@.............@.............\n@@.......@@@@@@@@@@@@@@@@@...........@@............\n@@.......@@@@@@@@@@@@@@@@@..@@@@@@...@@...........\n@.......@@@@@@@@@@@@@@@@@@@@@@@@@@..@............\n@.......@@@@@@@@@@@@@@@@@@@@@@@@@@@@@............\n@........@@@@@@@@@@@@@@@@@@@@@@@@@@@.............\n@........@@@@@@@@@@@@@@@@@@@@@@@@@@@@............\n@.........@@@@@@@@@@@@@@@@@@@@@@@@@@@............\n@..........@@@@@@@@@@@@@@@..@@@@@@@@...........\n@.................@@@.....@@@@@@@@@..............\n@.................@@@@...@@@@@@@@@...............\n@..................@@@@..@@@@@@@................\n@...................@@@@@@@@@@..................\n@....................@@@@@@@@...................\n@....................@@@@@..................... \n@...................@@@@@@..................... \n@@..................@@@@@@....................\n@@..................@@@@@@....@@@@@@@@.........\n@...................@@@.....@@@@@.@@@@@.......\n@.........................@@@@...@@@@.........\n@........................@@@@...@@@..........\n@.......................@@@@...@@...........\n@@......................@@@@..@@............\n@@......................@@@..@..............\n@@@.....................@..@@...............\n@@@@@@@@@@@@@@@@@@@@@@@@@@@................\n@@@@@@@@@@@@@@@@@@@@@@@@@@.................\n`.trim()
 
-function parseGrid(str){
-  let lines=str.split`\n`.filter(l=>l.length>0)
-  return lines.map(l=>l.split``.map(c=>c=='@'?1:0))
+SIL.FISH=`\n........@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@..............\n.......@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@.............\n......@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@.............\n......@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@.............\\n......@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@.............\n......@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@.............\\n......@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@.............\n......@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@.............\n......@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@.............\n......@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@.............\n......@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@.............\n......@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@.............\n......@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@.............\\n......@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@.............\n......@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@.............\n.......@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@.............\n........@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@.............\n.........@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@.............\n..........@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@.............
+`.trim()
+
+SIL.SKULL=`\n..............@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@........................\n...........@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@..................\n.........@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@................\n........@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@...............\n.......@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@..............\n.......@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@.............\n......@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@.@@@@@@@............\n......@@@@.....@@@@@@@@@@@@@@@@@@@@@@@@@@@@@.....@@@@@.............\n......@@@.......@@@@@@@@@@@@@@@@@@@@@@@@@@@.......@@@@.............\n......@@@.@@......@@@@@@@@@@@@@@@@@@@@@@@......@@..@@@@............\n......@@@.@@@@....@@@@@@@@@@@@@@@@@@@@@@@....@@@@..@@@@............\n.......@@@.@@@@@...@@@@@@@@@@@@@@@@@@@@@...@@@@@..@@@.............\n........@@..@@@@@...@@@@@@@@@@@@@@@@@...@@@@@..@@...............\n.............@@@@@@..@@@@@@@@@@@@@@@@@..@@@@@@...................\n...........@@@@@@@@....@@@@@@@@@@@@@....@@@@@@@@.................\n.........@@@@@@@@@@@.....................@@@@@@@@@@@..............\n.......@@@@@@@@@@@@@@...................@@@@@@@@@@@@............. \n......@@@@@@@@@@@@@@@@..................@@@@@@@@@@@@@............. \n......@@@@@@@@@@@@@@@@@@...............@@@@@@@@@@@@@............. \n......@@@@@@@@@@@@@@@@@@@..@@@@@@@...@@@@@@@@@@@@@@............. \n.......@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@..............\n.........@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@...............\n..........@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@.................\n`.trim()
+
+function parseGrid(s){
+  let l=s.split`\n`.filter(x=>x.length>60)
+  return l.map(x=>x.split``.map(c=>c=='@'?1:0))
 }
-
-function centerGrid(grid){
-  let h=grid.length,w=grid[0].length
-  let offX=~~((COLS-w)/2),offY=~~((ROWS-h)/2)
-  let g=[]
-  for(let i=0;i<ROWS;i++){g[i]=[];for(let j=0;j<COLS;j++)g[i][j]=0}
-  for(let i=0;i<h;i++)for(let j=0;j<w;j++){
-    let y=offY+i,x=offX+j
-    if(y>=0&&y<ROWS&&x>=0&&x<COLS)g[y][x]=grid[i][j]
-  }
-  return g
+function centerGrid(g){
+  let h=g.length,w=g[0].length,ox=~~((COLS-w)/2),oy=~~((ROWS-h)/2),gr=[]
+  for(let i=ROWS;i--;){gr[i]=[];for(let j=COLS;j--;)gr[i][j]=0}
+  for(let i=0;i<h;i++)for(let j=0;j<w;j++){let y=oy+i,x=ox+j;if(y>=0&&y<ROWS&&x>=0&&x<COLS)gr[y][x]=g[i][j]}
+  return gr
 }
-
-function qrToGrid(){
-  let qrSize=21,offX=~~((COLS-qrSize)/2),offY=~~((ROWS-qrSize)/2)
-  let g=[]
-  for(let i=0;i<ROWS;i++){g[i]=[];for(let j=0;j<COLS;j++)g[i][j]=0}
-  for(let i=0;i<qrSize;i++)for(let j=0;j<qrSize;j++){
-    let y=offY+i,x=offX+j
-    if(y>=0&&y<ROWS&&x>=0&&x<COLS)g[y][x]=QR[i*qrSize+j]
-  }
+function qrGrid(){
+  let sz=21,ox=~~((COLS-sz)/2),oy=~~((ROWS-sz)/2),g=[]
+  for(let i=ROWS;i--;){g[i]=[];for(let j=COLS;j--;)g[i][j]=0}
+  for(let i=0;i<sz;i++)for(let j=0;j<sz;j++){let y=oy+i,x=ox+j;if(y>=0&&y<ROWS&&x>=0&&x<COLS)g[y][x]=QR[i*sz+j]}
   return g
 }
 
 let C; onload=_=>{
+try{
 C=document.createElement('canvas')
 document.body.prepend(C)
 for(let i=ROWS;i--;){G[i]=[];for(let j=COLS;j--;)G[i][j]=Math.random()<.35?1:0}
 onresize=_=>{C.width=innerWidth;C.height=innerHeight}
-document.onkeydown=e=>{
-  if(e.key=='ArrowLeft')speed=Math.max(1,--speed)
-  if(e.key=='ArrowRight')speed=Math.min(20,++speed)
-  if(e.key=='ArrowUp'){G=NG(G,rule);gen++}
-  if(e.key=='r'){G=[];for(let i=ROWS;i--;){G[i]=[];for(let j=COLS;j--;)G[i][j]=Math.random()<.35?1:0};gen=0;morphing=0}
-  if(e.key==' '){rule=(rule+1)%RULES.length;showInfo()}
-  if(e.key=='c')pal=(pal+1)%PAL.length
-  if(e.key=='s')sym=!sym
-  if(e.key=='p')pause=!pause
-  if(e.key=='q'&&!morphing){TARGET=qrToGrid();TARGET_NAME='QR';startMorph()}
-  if(e.key=='w'&&!morphing){TARGET=centerGrid(parseGrid(WOMAN));TARGET_NAME='Woman';startMorph()}
+
+document.ontouchstart=e=>{
+  let cw=C.width/COLS,rh=C.height/ROWS
+  let t=e.changedTouches[0],j=~~(t.clientX/cw),i=~~(t.clientY/rh)
+  if(i>=0&&i<ROWS&&j>=0&&j<COLS){G[i][j]=1-G[i][j];touching=1;lastTJ=j;lastTI=i}
+  e.preventDefault()
 }
+document.ontouchmove=e=>{
+  if(!touching)return
+  let cw=C.width/COLS,rh=C.height/ROWS
+  let t=e.changedTouches[0],j=~~(t.clientX/cw),i=~~(t.clientY/rh)
+  if(i>=0&&i<ROWS&&j>=0&&j<COLS&&(i!=lastTI||j!=lastTJ)){G[i][j]=1-G[i][j];lastTI=i;lastTJ=j}
+  e.preventDefault()
+}
+document.ontouchend=e=>{touching=0}
+
 document.onclick=e=>{
   let cw=C.width/COLS,rh=C.height/ROWS,j=~~(e.clientX/cw),i=~~(e.clientY/rh)
   if(i>=0&&i<ROWS&&j>=0&&j<COLS)G[i][j]=1-G[i][j]
 }
-function startMorph(){morphing=1;morphPhase=0;showInfo()}
+document.onkeydown=e=>keyH(e.key)
+function keyH(k){
+  if(k=='ArrowLeft'&&--speed<1)speed=1
+  if(k=='ArrowRight'&&++speed>20)speed=20
+  if(k=='ArrowUp'){G=NG(G,rule);gen++}
+  if(k=='r'){G=[];for(let i=ROWS;i--;){G[i]=[];for(let j=COLS;j--;)G[i][j]=Math.random()<.35?1:0};gen=0;morphing=0}
+  if(k==' '){rule=(rule+1)%RULES.length}
+  if(k=='c')pal=(pal+1)%PAL.length
+  if(k=='s')sym=!sym
+  if(k=='p')pause=!pause
+  if(k)updUI()
+}
+function morph(name){
+  if(morphing)return
+  TARGET=silhouette(name)
+  TARGET_NAME=name;morphing=1;morphPhase=0
+}
 function NG(g,ri){
   let [s,b]=RULES[ri],ss=new Set(s),bs=new Set(b),r=ROWS,c=COLS
   return g.map((row,i)=>row.map((v,j)=>{
@@ -136,42 +145,48 @@ function NG(g,ri){
     return v?(ss.has(n)?1:0):(bs.has(n)?1:0)
   }))
 }
-function showInfo(){document.getElementById('info').textContent=
-  `←→spd=${speed}  rule=${['Conway','HighLife','2x2','Seeds','Maze','Coral'][rule]}  C:pal  S:sym=${sym}  Q:QR  W:Woman`+(morphing?` → morphing to ${TARGET_NAME}:${~~(morphPhase*100)}%`:'')}
-let lastF=0
+function updUI(){
+  document.getElementById('spdL').textContent=speed
+  document.getElementById('ruleL').textContent=RULEN[rule][0]
+}
 function tick(t){
   requestAnimationFrame(tick)
+  try{
   let cw=C.width/COLS,rh=C.height/ROWS
   let ctx=C.getContext('2d')
   ctx.fillStyle='#0a0a0f';ctx.fillRect(0,0,C.width,C.height)
-  
   if(morphing){
-    morphPhase+=.015*(1-morphPhase+.05) // ease in
+    morphPhase+=.015*(1-morphPhase+.05)
     if(morphPhase>=1){morphing=0;morphPhase=1;G=TARGET.map(r=>[...r])}
-    let cx=COLS/2, cy=ROWS/2, maxDist=Math.sqrt(cx*cx+cy*cy)
+    let cx=COLS/2,cy=ROWS/2,md=Math.sqrt(cx*cx+cy*cy)
     for(let i=0;i<ROWS;i++)for(let j=0;j<COLS;j++){
-      let d=Math.sqrt((j-cx)**2+(i-cy)**2)/maxDist
+      let d=Math.sqrt((j-cx)**2+(i-cy)**2)/md
       let t=(morphPhase-d)/(1-d+1e-6)
       if(t>0&&t<1)G[i][j]=Math.random()<t?TARGET[i][j]:G[i][j]
       else if(t>=1)G[i][j]=TARGET[i][j]
     }
   }else if(!pause&&++RUN%(21-speed)==0){G=NG(G,rule);gen++}
-  
   if(sym)for(let i=0;i<ROWS;i++)for(let j=~~(COLS/2);j<COLS;j++)G[i][j]=G[i][COLS-1-j]
   for(let i=0;i<ROWS;i++)for(let j=0;j<COLS;j++){
     if(G[i][j]){
-      let age=(gen+i+j+pal)%PAL.length
-      if(morphing){
-        let wave=Math.sin(gen*.08+i*.15+j*.15)*.4+.6
-        ctx.fillStyle=`rgb(${~~(PAL[age][0]*wave)},${~~(PAL[age][1]*wave)},${~~(PAL[age][2]*wave)})`
-      }else ctx.fillStyle=`rgb(${PAL[age][0]},${PAL[age][1]},${PAL[age][2]})`
+      let a=(gen+i+j+pal)%PAL.length
+      if(morphing){let w=Math.sin(gen*.08+i*.15+j*.15)*.4+.6
+        ctx.fillStyle=`rgb(${~~(PAL[a][0]*w)},${~~(PAL[a][1]*w)},${~~(PAL[a][2]*w)})`
+      }else ctx.fillStyle=`rgb(${PAL[a][0]},${PAL[a][1]},${PAL[a][2]})`
       ctx.fillRect(j*cw,i*rh,cw+1,rh+1)
     }
-  }
-}
-setInterval(showInfo,100)
+  }catch(e){}
+} // end tick
 onresize();tick()
+}catch(e){
+  console.error(e)
+  let ed=document.getElementById('err')||document.createElement('div')
+  ed.id='err'
+  ed.style.cssText='position:fixed;top:40%;left:50%;transform:translate(-50%,-50%);color:#f44;background:#000c;padding:16px;border-radius:8px;font:12px monospace;max-width:85vw;white-space:pre-wrap;z-index:99'
+  ed.textContent='ERR: '+e.message+(e.stack?'\n'+e.stack.split('\n').slice(0,2).join('\n'):'')
+  document.body.appendChild(ed)
 }
+} // end onload
 </script>
 </body>
 </html>
