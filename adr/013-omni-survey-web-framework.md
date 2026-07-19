@@ -1,6 +1,7 @@
 # ADR-013: omni-survey の Web フレームワーク / 言語選定
 
 > Date: 2026-07-19 | Project: omni-survey (汎用アンケート生成サービス)
+> Status: **SUPERSEDED by ADR-015** (集計・可視化重視 + 軽量・高速要件への方針転換)
 
 ---
 

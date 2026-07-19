@@ -1,6 +1,7 @@
 # ADR-014: omni-survey フロントエンド選定（関数型 Elm vs Vue）
 
 > Date: 2026-07-19 | 前提: バックエンド = Rails 8 (ADR-013)、GCP/Cloud Run
+> Status: **SUPERSEDED by ADR-015** (BE を Go、FE を Svelte へ変更)
 
 ---
 
