@@ -77,69 +77,75 @@ func submit(w http.ResponseWriter, r *http.Request) {
 
 ---
 
-## フロントエンド候補: Svelte vs Vue vs Elm（再評価）
+## フロントエンド候補: Svelte vs Vue vs Elm vs **htmx**（再評価）
 
-### Svelte ★★★★★
+### htmx ★★★★★（軽量・ビルドレス・Go 親和）
 
-```svelte
-<!-- 集計チャート: バンドル最小、描画速い -->
-<script>
-  export let agg; // [{field, cnt}]
-  $: total = agg.reduce((s,a)=>s+a.cnt,0)
-</script>
+```html
+<!-- Go が集計HTMLを返す。フロント言語・ビルド不要 -->
+<form hx-post="/api/submit" hx-target="#msg">
+  <textarea name="content"></textarea>
+  <button>送信</button>
+</form>
+<div id="msg"></div>
 
-{#each agg as a}
-  <div class="bar" style="width:{a.cnt/total*100}%">{a.field}: {a.cnt}</div>
-{/each}
+<!-- 集計: Go が BigQuery 結果を HTML で返す -->
+<div hx-get="/api/agg/uber" hx-trigger="load" hx-swap="innerHTML"></div>
 ```
 
-- **バンドル最小**（Vue/React の 1/3 以下）、モバイルに最軽量
-- **リアクティブ** が言語組込み（`$:` 派生値）
-- **チャート描画** は素の `<div>` バーでも綺麗い、または `layercake` / `chart.js` と相性良
-- 集計結果の「サクッと見せる」に最適
+- **バンドルほぼ 0**（htmx ~14KB）。Svelte より軽い
+- **Go が HTML を直接生成** → フロントエンド言語・ビルドステップが消える
+- 集計ダッシュボードも「Go が集計HTML返し」で完結
+- チャート描画は Chart.js 等を `<script>` で併用（サーバー側で data-JSON を埋め込む）
+
+### Svelte ★★★★（インタラクティブ向け）
+
+- バンドル最小級だが htmx の「0」には勝てない
+- クライアント側での絞り込み・ソートは Svelte の方が楽
+- ビルドステップ（Vite）が1つ増える
 
 ### Vue 3（ADR-014 案）★★★
 
-- 情報量は多いがバンドルが Svelte より重い
-- 集計表示自体は十分だが「軽量」要件で Svelte に劣る
+- 情報量は多いがバンドルが Svelte/htmx より重い
 
 ### Elm ★★
 
-- 厳密だが、チャート描画に Ports/JS が必要で集計画面には過剰
-- 学習コストが「素早く」と逆行
+- 厳密だが集計画面に過剰、学習コストが「素早く」と逆行
 
-**→ FE = Svelte に決定**
+**→ FE = htmx を推奨（ビルドレス・最軽量）。Svelte は「インタラクティブ集計」が要る場合の代替**
 
 ---
 
-## 決定
+## 追加候補: Gleam (JS target) を FE に使う場合
+
+- Gleam で `html` ライブラリ（或いは Lustre）を使い、静的 HTML/JS を生成
+- `gleam build --target javascript` → バンドルを Firebase/Cloud Run に配置
+- htmx と併用も可（Gleam が生成した HTML に `hx-*` 属性を付ける）
+- 小規模なら Gleam の型安全性を活かしつつ、ビルド成果物は軽量
+
+### Go + Gleam の組合せ
+
+- **BE: Go**（BigQuery SDK・コールドスタート速い）で API
+- **FE: Gleam (JS)** で静的アセット生成、または htmx でビルドレス
+- 小規模ゆえ「言語統一」より「書きやすさ」を優先しても良い
+
+---
+
+## 決定（小規模・柔軟方針）
 
 ```
-omni-survey = Go (Cloud Run/Functions)  +  Svelte (SPA)  +  BigQuery
+omni-survey = Go (BE, BigQuery)  ＋  FE は以下から選択（小規模ゆえ柔軟）
 
-構成:
-  [Svelte SPA]
-    ├─ /s/:slug      動的フォーム（templates/*.json 描画）
-    └─ /r/:slug      集計ダッシュボード（チャート表示）
-         │ fetch
-         ▼
-  [Go API]
-    ├─ POST /api/submit   回答 → BigQuery insert
-    ├─ GET  /api/agg/:slug  BigQuery 集計クエリ → JSON
-         │
-         ▼
-  [BigQuery]  responses(survey_id, data JSON, created_at)
-         │ エクスポート
-         ▼
-  [GWS スプシ]  個人分析用
-```
+  A. htmx    （推奨・ビルドレス・最軽量。Go が HTML 返し）
+  B. Gleam   （型安全を活かしたい時。JS target で静的ビルド）
+  C. Svelte  （インタラクティブ集計が要る時）
 
 理由:
-  1. Go = BQ 公式 SDK・コールドスタート数ms・単一バイナリ（軽量・高速要件を直接満たす）
-  2. Svelte = バンドル最小・描画速い（集計を見せる要件に最適）
-  3. 集計は BQ クエリで直接 → 「DBサクッと」が実現
-  4. Rails の重さを完全に排除
-  5. テンプレート差し替え（JSON）は Go の `encoding/json` で十分
+  - 小規模サービスなので「正解の一つ」に縛らず、実装のしやすさ優先
+  - BE は Go に固定（BQ SDK・軽量・高速の要件を満たす）
+  - FE は htmx を既定とし、Gleam/Svelte は好みで
+  - Go+Gleam のハイブリッドも可（小規模なら言語混合のコスト微少）
+```
 
 ---
 
@@ -147,16 +153,16 @@ omni-survey = Go (Cloud Run/Functions)  +  Svelte (SPA)  +  BigQuery
 
 ```
 Q1: 集計・可視化を重視する？
-├─ Yes → Q2
-└─ No  → ADR-013/014 の Rails+Vue に戻る
+├─ Yes → BE は Go で固定
+└─ No  → 収集のみなら更軽い構成でも可
 
-Q2: 軽量・高速を最優先？
-├─ Yes → Go (BE) + Svelte (FE)
-└─ No  → Rails でも可（だが本要件では不採用）
+Q2: FE をビルドレスにしたい？
+├─ Yes → htmx（Go が HTML 返し）
+└─ No  → Q3
 
-Q3: フロントの厳密さより軽さ？
-├─ Yes → Svelte
-└─ No  → Vue（情報量重視）または Elm（型安全重視）
+Q3: 型安全な FE が欲しい？
+├─ Yes → Gleam (JS target)
+└─ No  → Svelte（インタラクティブ集計）
 ```
 
 ---
@@ -165,10 +171,11 @@ Q3: フロントの厳密さより軽さ？
 
 | 構成 | スコア | 一言 |
 |---|---|---|
-| **Go + Svelte** | **9.1/10** | 集計・軽量・高速のための設計 |
-| Go + Vue | 8.6/10 | 軽いが FE がやや重い |
+| **Go + htmx** | **9.3/10** | ビルドレス・最軽量・Go親和 |
+| Go + Gleam | 8.8/10 | 型安全・小規模に十分 |
+| Go + Svelte | 8.6/10 | インタラクティブ集計向け |
+| Go + Vue | 8.2/10 | 情報量重視 |
 | Rails + Vue | 6.5/10 | 起動重く「サクッと」に反する |
-| Elm 単体 | 5.5/10 | 集計画面に過剰 |
 
 ---
 
